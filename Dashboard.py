@@ -132,8 +132,12 @@ class RadioEmitterDashboard:
             status_options = ['Actif', 'Actif', 'Actif', 'Maintenance', 'Inactif']
             status = random.choice(status_options)
             
+            # Remplacer les tirets par des underscores dans l'ID pour éviter les problèmes Streamlit
+            emitter_id_str = f"FR_{emitter_id:03d}"  # FR_001 au lieu de FR-001
+            
             emitters.append({
-                'id': f"FR-{emitter_id:03d}",
+                'id': emitter_id_str,
+                'id_original': f"FR-{emitter_id:03d}",  # Garder l'original pour l'affichage
                 'nom': f"Freedom Radio - {city}",
                 'ville': city,
                 'latitude': lat,
@@ -261,10 +265,13 @@ class RadioEmitterDashboard:
             else:
                 color = 'red'
             
+            # Utiliser l'ID original pour l'affichage (avec tiret)
+            display_id = emitter['id_original'] if 'id_original' in emitter else emitter['id'].replace('_', '-')
+            
             # Création du popup avec informations
             popup_html = f"""
             <b>{emitter['nom']}</b><br>
-            ID: {emitter['id']}<br>
+            ID: {display_id}<br>
             Fréquence: {emitter['frequence']} MHz<br>
             Puissance: {emitter['puissance']} W<br>
             Altitude: {emitter['altitude']} m<br>
@@ -352,12 +359,16 @@ class RadioEmitterDashboard:
             else:
                 status_class = "status-inactive"
             
+            # ID d'affichage et ID pour session_state (sans caractères spéciaux)
+            display_id = emitter['id_original'] if 'id_original' in emitter else emitter['id'].replace('_', '-')
+            safe_id = emitter['id']  # Déjà avec underscore
+            
             # Affichage de la carte d'émetteur
             with st.container():
                 col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
                 
                 with col1:
-                    st.markdown(f"**{emitter['id']}**")
+                    st.markdown(f"**{display_id}**")
                     st.markdown(f"<div class='{status_class}'>{emitter['statut']}</div>", 
                                unsafe_allow_html=True)
                 
@@ -375,13 +386,14 @@ class RadioEmitterDashboard:
                     st.markdown(f"**Technicien:** {emitter['technicien']}")
                     st.markdown(f"**Dernière maintenance:** {emitter['derniere_maintenance']}")
                     
-                    # Bouton pour voir les détails
-                    if st.button(f"Détails {emitter['id']}", key=f"details_{emitter['id']}"):
-                        st.session_state[f"show_details_{emitter['id']}"] = not st.session_state.get(f"show_details_{emitter['id']}", False)
+                    # Bouton pour voir les détails - utiliser safe_id
+                    details_key = f"details_{safe_id}"
+                    if st.button(f"Détails {display_id}", key=f"btn_{safe_id}"):
+                        st.session_state[details_key] = not st.session_state.get(details_key, False)
                 
                 # Section de détails (cachée par défaut)
-                if st.session_state.get(f"show_details_{emitter['id']}", False):
-                    with st.expander(f"Informations détaillées - {emitter['id']}", expanded=True):
+                if st.session_state.get(f"details_{safe_id}", False):
+                    with st.expander(f"Informations détaillées - {display_id}", expanded=True):
                         col1, col2 = st.columns(2)
                         
                         with col1:
@@ -398,7 +410,7 @@ class RadioEmitterDashboard:
                                 st.markdown(f"- {date.strftime('%Y-%m-%d')}: Maintenance {random.choice(['préventive', 'corrective', 'upgrade'])}")
                         
                         # Graphique de qualité du signal
-                        emitter_signal = self.signal_data[self.signal_data['emitter_id'] == emitter['id']]
+                        emitter_signal = self.signal_data[self.signal_data['emitter_id'] == safe_id]
                         if not emitter_signal.empty:
                             # Moyenne par heure pour les 7 derniers jours
                             hourly_avg = emitter_signal.groupby('heure')['qualite'].mean().reset_index()
@@ -407,7 +419,7 @@ class RadioEmitterDashboard:
                                 hourly_avg, 
                                 x='heure', 
                                 y='qualite',
-                                title=f"Qualité du signal moyenne par heure - {emitter['id']}",
+                                title=f"Qualité du signal moyenne par heure - {display_id}",
                                 labels={'heure': 'Heure de la journée', 'qualite': 'Qualité du signal (%)'}
                             )
                             fig.update_layout(yaxis_range=[0, 100])
@@ -438,8 +450,10 @@ class RadioEmitterDashboard:
                     else:
                         quality = 0
                     
+                    display_id = emitter['id_original'] if 'id_original' in emitter else emitter['id'].replace('_', '-')
+                    
                     current_quality.append({
-                        'emitter_id': emitter['id'],
+                        'emitter_id': display_id,
                         'nom': emitter['nom'],
                         'qualite': quality,
                         'statut': emitter['statut']
@@ -467,11 +481,16 @@ class RadioEmitterDashboard:
                 selected_emitters = random.sample(list(self.emitters['id'].unique()), min(5, len(self.emitters)))
                 filtered_data = daily_avg[daily_avg['emitter_id'].isin(selected_emitters)]
                 
+                # Remplacer les IDs pour l'affichage
+                filtered_data['display_id'] = filtered_data['emitter_id'].apply(
+                    lambda x: x.replace('_', '-') if '_' in x else x
+                )
+                
                 fig = px.line(
                     filtered_data, 
                     x='date', 
                     y='qualite',
-                    color='emitter_id',
+                    color='display_id',
                     title="Évolution de la qualité du signal (7 derniers jours)",
                     labels={'qualite': 'Qualité du signal (%)', 'date': 'Date'}
                 )
@@ -484,8 +503,14 @@ class RadioEmitterDashboard:
             
             with col1:
                 # Puissance par émetteur
+                # Ajouter une colonne d'affichage
+                plot_emitters = self.emitters.copy()
+                plot_emitters['display_id'] = plot_emitters['id'].apply(
+                    lambda x: x.replace('_', '-') if '_' in x else x
+                )
+                
                 fig = px.bar(
-                    self.emitters, 
+                    plot_emitters, 
                     x='nom', 
                     y='puissance',
                     color='statut',
@@ -518,8 +543,10 @@ class RadioEmitterDashboard:
             
             with col1:
                 # Couverture par émetteur
+                plot_emitters = self.emitters.copy()
+                
                 fig = px.bar(
-                    self.emitters, 
+                    plot_emitters, 
                     x='nom', 
                     y='couverture',
                     color='statut',
@@ -536,7 +563,7 @@ class RadioEmitterDashboard:
                 lon_min, lon_max = 55.2, 55.7
                 
                 # Génération de points sur une grille
-                grid_points = 50
+                grid_points = 30  # Réduit pour les performances
                 lats = np.linspace(lat_min, lat_max, grid_points)
                 lons = np.linspace(lon_min, lon_max, grid_points)
                 
@@ -592,8 +619,11 @@ class RadioEmitterDashboard:
                 else:
                     priority = "Basse"
             
+            display_id = emitter['id_original'] if 'id_original' in emitter else emitter['id'].replace('_', '-')
+            
             maintenance_schedule.append({
-                'emitter_id': emitter['id'],
+                'emitter_id': emitter['id'],  # ID safe pour session_state
+                'display_id': display_id,      # ID pour affichage
                 'nom': emitter['nom'],
                 'statut': emitter['statut'],
                 'derniere_maintenance': emitter['derniere_maintenance'],
@@ -615,7 +645,7 @@ class RadioEmitterDashboard:
             col1, col2, col3, col4, col5 = st.columns([1, 2, 1, 1, 1])
             
             with col1:
-                st.markdown(f"**{maintenance['emitter_id']}**")
+                st.markdown(f"**{maintenance['display_id']}**")
                 if maintenance['statut'] == 'Maintenance':
                     st.markdown('<div class="status-maintenance">En cours</div>', unsafe_allow_html=True)
                 elif maintenance['priorite'] == 'Élevée':
@@ -636,12 +666,14 @@ class RadioEmitterDashboard:
                 st.markdown(f"**Technicien:** {maintenance['technicien']}")
             
             with col5:
-                if st.button(f"Planifier", key=f"plan_{maintenance['emitter_id']}"):
-                    st.session_state[f"plan_{maintenance['emitter_id']}"] = True
+                # Utiliser l'ID safe pour la clé de session
+                plan_key = f"plan_{maintenance['emitter_id']}"
+                if st.button(f"Planifier", key=f"btn_plan_{maintenance['emitter_id']}"):
+                    st.session_state[plan_key] = True
             
             # Formulaire de planification (caché par défaut)
-            if st.session_state.get(f"plan_{maintenance['emitter_id']}", False):
-                with st.expander(f"Planification de maintenance - {maintenance['emitter_id']}", expanded=True):
+            if st.session_state.get(plan_key, False):
+                with st.expander(f"Planification de maintenance - {maintenance['display_id']}", expanded=True):
                     with st.form(key=f"maintenance_form_{maintenance['emitter_id']}"):
                         col1, col2 = st.columns(2)
                         
@@ -660,8 +692,9 @@ class RadioEmitterDashboard:
                         
                         submitted = st.form_submit_button("Confirmer la planification")
                         if submitted:
-                            st.success(f"Maintenance planifiée pour {maintenance['emitter_id']} le {date} à {heure}")
-                            st.session_state[f"plan_{maintenance['emitter_id']}"] = False
+                            st.success(f"Maintenance planifiée pour {maintenance['display_id']} le {date} à {heure}")
+                            st.session_state[plan_key] = False
+                            st.rerun()
             
             st.markdown("---")
     
